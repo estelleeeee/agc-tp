@@ -23,13 +23,13 @@ from collections import Counter
 # ftp://ftp.ncbi.nih.gov/blast/matrices/
 import nwalign3 as nw
 
-__author__ = "Your Name"
+__author__ = "Estelle Mariaux"
 __copyright__ = "Universite Paris Diderot"
-__credits__ = ["Your Name"]
+__credits__ = ["Estelle Mariaux"]
 __license__ = "GPL"
 __version__ = "1.0.0"
-__maintainer__ = "Your Name"
-__email__ = "your@email.fr"
+__maintainer__ = "Estelle Mariaux"
+__email__ = "estelle.mariaux@hotmail.fr"
 __status__ = "Developpement"
 
 
@@ -55,7 +55,7 @@ def get_arguments():
     parser = argparse.ArgumentParser(description=__doc__, usage=
                                      "{0} -h"
                                      .format(sys.argv[0]))
-    parser.add_argument('-i', '-amplicon_file', dest='amplicon_file', type=isfile, required=True, 
+    parser.add_argument('-i', '-amplicon_file', dest='amplicon_file', type=isfile, required=True,
                         help="Amplicon is a compressed fasta file (.fasta.gz)")
     parser.add_argument('-s', '-minseqlen', dest='minseqlen', type=int, default = 400,
                         help="Minimum sequence length for dereplication")
@@ -69,6 +69,97 @@ def get_arguments():
                         default="OTU.fasta", help="Output file")
     return parser.parse_args()
 
+#1-De-duplication en sequence 'complète' ======================
+
+def read_fasta(amplicon_file, minseqlen):
+    """Gets the sequence with length superior minseqlen
+    """
+    if amplicon_file.endswith(".gz"):
+        file = gzip.open(amplicon_file, 'rb')
+        sequence = b""
+        for line in file:
+            if line.startswith(b'>'):
+                if len(sequence) >= minseqlen:
+                    yield sequence.decode('ascii')
+                sequence = b""
+            else:
+                sequence += line.strip()
+        yield sequence.decode('ascii')
+    else:
+        file = open(amplicon_file, "r")
+        sequence = ""
+        for line in file:
+            if line.startswith(">"):
+                if len(sequence) >= minseqlen:
+                    yield sequence
+                sequence = ""
+            else:
+                sequence += line.strip()
+        yield sequence
+    file.close()
+
+def dereplication_fulllength(amplicon_file, minseqlen, mincount):
+    """Gets the sequences repeated at least mincount times
+    """
+    dico_temp = {}
+    for seq in read_fasta(amplicon_file, minseqlen):
+        if seq in dico_temp.keys():
+            dico_temp[seq] += 1
+        else:
+            dico_temp[seq] = 1
+    for key, value in sorted(dico_temp.items(), key = lambda x: x[1], reverse = True):
+        if value >= mincount:
+            yield [key, value]
+
+#2-Recherche de séquences chimeriques par approche "de novo"===
+
+def get_chunks(sequence, chunk_size):
+    """Creates at least 4 segments of 1 sequence
+    """
+    seq_len = len(sequence)
+    chunks = []
+    for k in range(0, seq_len//chunk_size):
+        chunks.append(sequence[chunk_size*k: chunk_size*(k+1)])
+    if len(chunks) < 4:
+        raise ValueError("ERROR : get_chunks, less than 4 segments of sequence")
+    return chunks
+
+def cut_kmer(sequence, kmer_size):
+    """Creates a generator of kmer
+    """
+    for k in range(len(sequence) - kmer_size+1):
+        yield sequence[k : k+kmer_size]
+
+def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
+    """Add kmer to dictionnary
+    """
+    for kmer in cut_kmer(sequence, kmer_size):
+        if kmer in kmer_dict:
+            kmer_dict[kmer].append(id_seq)
+        else:
+            kmer_dict[kmer] = [id_seq]
+    return kmer_dict
+
+def search_mates(kmer_dict, sequence, kmer_size):
+    return [i[0] for i in Counter([ids for kmer in cut_kmer(sequence, kmer_size) if kmer in kmer_dict for ids in kmer_dict[kmer]]).most_common(8)]
+
+def get_identity(alignment_list):
+    nucl_id = 0
+    len_seq = len(alignment_list[0])
+    for k in range(0, len_seq):
+        if alignment_list[0][k] == alignment_list[1][k]:
+            nucl_id +=1
+    return round(nucl_id/len_seq*100,1)
+
+def get_unique(ids):
+    return {}.fromkeys(ids).keys()
+
+def detect_chimera(perc_identity_matrix):
+    
+
+
+
+
 #==============================================================
 # Main program
 #==============================================================
@@ -79,6 +170,8 @@ def main():
     # Get arguments
     args = get_arguments()
 
+    liste = ["TGGGGAATATTGCACAATGGGCGCAAGCCTGATGCAG", "TGGGGAATA--GCACAATGGGCGCAAGCCTCTAGCAG"]
+    print(get_identity(liste))
 
 if __name__ == '__main__':
     main()
