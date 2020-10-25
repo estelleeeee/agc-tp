@@ -141,9 +141,14 @@ def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
     return kmer_dict
 
 def search_mates(kmer_dict, sequence, kmer_size):
-    return [i[0] for i in Counter([ids for kmer in cut_kmer(sequence, kmer_size) if kmer in kmer_dict for ids in kmer_dict[kmer]]).most_common(8)]
+    """doc
+    """
+    return [i[0] for i in Counter([ids for kmer in cut_kmer(sequence, kmer_size) \
+        if kmer in kmer_dict for ids in kmer_dict[kmer]]).most_common(8)]
 
 def get_identity(alignment_list):
+    """Computes percentage of identity
+    """
     nucl_id = 0
     len_seq = len(alignment_list[0])
     for k in range(0, len_seq):
@@ -152,13 +157,63 @@ def get_identity(alignment_list):
     return round(nucl_id/len_seq*100,1)
 
 def get_unique(ids):
+    """Creates dict of unique ID
+    """
     return {}.fromkeys(ids).keys()
 
 def detect_chimera(perc_identity_matrix):
-    
+    """Creates boolean
+    """
+    id1, id2 = [], []
+    sd = 0
+    for segment in perc_identity_matrix:
+        sd += statistics.stdev(segment)
+        id1.append(segment[0])
+        id2.append(segment[1])
+    sd_mean = sd /len(perc_identity_matrix)
+    if (len(get_unique(id1))>2 or len(get_unique(id2))>2) and sd_mean > 5:
+        chimera = True
+    else:
+        chimera = False
+    return chimera
 
+def common(lst1, lst2):
+    """doc
+    """
+    return list(set(lst1) & set(lst2))
 
+def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
+    """Removes chimera
+    """
+    kmer_dict = {}
+    for sequence, count_seq in dereplication_fulllength(amplicon_file, minseqlen, mincount):
+        chunks = get_chunks(sequence, chunk_size)
+        chunks_mates = []
+        for chunk in chunks:
+            chunks_mates.append(search_mates(kmer_dict, chunk, kmer_size))
+        #on ne choisit que les 2 premiers chunks
+        #common
+        #get_identity
+    #yield [sequence, count_seq]
 
+#3-Regroupement glouton=======================================
+
+def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
+    """Creates OTU list
+    """
+    otu = []
+    for element in chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
+        otu.append(element)
+    return otu
+
+def write_OTU(OTU_list, output_file):
+    """Creates fasta file
+    """
+    with open(output_file, 'w') as file:
+        for i in range(0,len(OTU_list)):
+            file.write(">OTU_{} occurrence:{}\n".format(i+1, OTU_list[i][1]))
+            for j in range (0, len(OTU_list[i][0]), 80):
+                file.write("{}\n".format(OTU_list[i][0][j:j+80]))
 
 #==============================================================
 # Main program
@@ -170,8 +225,11 @@ def main():
     # Get arguments
     args = get_arguments()
 
-    liste = ["TGGGGAATATTGCACAATGGGCGCAAGCCTGATGCAG", "TGGGGAATA--GCACAATGGGCGCAAGCCTCTAGCAG"]
-    print(get_identity(liste))
+    otu = abundance_greedy_clustering(args.amplicon_file, args.minseqlen, args.mincount, \
+       args.chunk_size, args.kmer_size)
+
+    write_OTU(otu, "../results/otu.fasta")
+
 
 if __name__ == '__main__':
     main()
